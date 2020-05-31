@@ -46,8 +46,7 @@ class Hub:
 		def _end(es=0):
 			for h in Hub._hl:
 				h.disconnect()
-			while (len(Hub._ol.keys())>0):
-				pass
+			time.sleep(0.2)
 			Hub._br=True
 			while (lp.is_running()==True):
 				pass
@@ -64,34 +63,38 @@ class Hub:
 		thr=threading.Thread(target=_run,args=(f,a,kw),kwargs={})
 		thr.start()
 		async def _loop():
-			while (Hub._br==False):
-				while (len(Hub._ol.keys())==0):
-					if (Hub._br==True):
-						return
-					await asyncio.sleep(0.001)
-				id_=list(Hub._ol.keys())[0]
-				t,a,kw=Hub._ol.pop(id_);
-				if (t==0):
-					kw["loop"]=asyncio.get_event_loop()
-					Hub._il[id_]=await bleak.discover(*a,**kw)
-				elif (t==1):
-					kw["loop"]=asyncio.get_event_loop()
-					dv=bleak.BleakClient(*a,**kw)
-					await dv.connect()
-					Hub._il[id_]=dv
-				elif (t==2):
-					await a[0].start_notify(CHAR_UUID,*a[1:],**kw)
-				elif (t==3):
-					await a[0].write_gatt_char(CHAR_UUID,*a[1:],**kw)
-				else:
-					print(f"UNKNOWN: {id_} => [{t},{a},{kw}]")
+			try:
+				while (Hub._br==False):
+					while (len(Hub._ol.keys())==0):
+						if (Hub._br==True):
+							return
+						await asyncio.sleep(0.001)
+					id_=list(Hub._ol.keys())[0]
+					t,a,kw=Hub._ol.pop(id_);
+					if (t==0):
+						kw["loop"]=asyncio.get_event_loop()
+						Hub._il[id_]=await bleak.discover(*a,**kw)
+					elif (t==1):
+						kw["loop"]=asyncio.get_event_loop()
+						dv=bleak.BleakClient(*a,**kw)
+						await dv.connect()
+						Hub._il[id_]=dv
+					elif (t==2):
+						await a[0].start_notify(CHAR_UUID,*a[1:],**kw)
+					elif (t==3):
+						await a[0].write_gatt_char(CHAR_UUID,*a[1:],**kw)
+					else:
+						print(f"UNKNOWN: {id_} => [{t},{a},{kw}]")
+			except Exception as e:
+				traceback.print_exception(None,e,e.__traceback__)
+				_end()
 		atexit.register(_end)
-		lp.run_until_complete(_loop())
+		asyncio.run(_loop())
 
 
 
 	@staticmethod
-	def find(cfl=[],i=5,t=None):
+	def find(cfl=[],i=5,t=None,cb=lambda *a,**kw:None):
 		hl=[]
 		al=[]
 		while (i>0 and len(hl)==0):
@@ -109,6 +112,7 @@ class Hub:
 								h._init()
 								hl+=[h]
 								al+=[d.address]
+								cb(h)
 								break
 					else:
 						if (dt[1]==t._m_id):
@@ -118,6 +122,7 @@ class Hub:
 							h._init()
 							hl+=[h]
 							al+=[d.address]
+							cb(h)
 							break
 			i-=1
 		if (len(cfl)==0):
@@ -132,6 +137,8 @@ class Hub:
 					if (pl[i]._id!=list(cf.values())[i]._id):
 						ok=False
 						break
+					else:
+						pl[i].setup()
 				if (ok==True):
 					o[-1]+=[h]
 		return o
@@ -166,7 +173,7 @@ class Hub:
 
 
 	def connections(self):
-		for p in self._port_dt.keys():
+		for p in list(self._port_dt.keys()):
 			print(f"{p} => {self._port_dt[p]['name']}")
 		return None
 
@@ -266,10 +273,9 @@ class Hub:
 					if (e==2):
 						p0,p1=dt
 						self._port_dt[p]["virtual"]=(p0,p1)
-						print(p,p0,p1)
+						print("VIRTUAL",p,p0,p1)
 					self._port_dt[p]["driver"]=HubDriver.get(id_)(self,p)
 					self._dl[p]=self._port_dt[p]["driver"]
-					self._send([0x00,0x21,p,0x01],wait=False)
 					self._port_dt[p]["_ready"]=True
 			elif (t==0x05):
 				ct,ec=dt
@@ -370,11 +376,12 @@ class Hub:
 				for i in range(0,len(dt),2):
 					l=[]
 					j=0
-					for s in PORT_OUTPUT_FEEDBACK.values():
+					for s in PORT_OUTPUT_FEEDBACK.keys():
 						if (dt[i+1]&1<<j>0):
 							l+=[s]
 						j+=1
-					print(f"FEEDBACK: port#{dt[i]} => {l}")
+					self._port_dt[dt[i]]["driver"].feedback+=l
+					# print(f"FEEDBACK: port#{dt[i]} => {[PORT_OUTPUT_FEEDBACK[e] for e in l]}")
 			else:
 				print(hex(t))
 		except Exception as e:
@@ -398,6 +405,7 @@ class HubDriver:
 	def __init__(self,h,p,_id=-1):
 		self.h=h
 		self.p=p
+		self.feedback=[0x08]
 		self._id=_id
 		self._cl=[]
 		self._dt=False
@@ -414,23 +422,33 @@ class HubDriver:
 
 
 
-	def _setup_caps(self,cl):
+	def setup(self):
+		self.h._send([0x00,0x21,self.p,0x01],wait=True)
+		self._setup_caps()
+
+
+
+	def _setup_caps_wr(self,cl):
 		self._cl=cl
+
+
+
+	def _setup_caps(self):
 		self.value=None
-		if (len(cl)==0):
+		if (len(self._cl)==0):
 			pass
-		elif (len(cl)==1):
+		elif (len(self._cl)==1):
 			self.value={}
-			self.h._send([0x00,0x41,self.p,cl[0][0],cl[0][2],0,0,0,1])
+			self.h._send([0x00,0x41,self.p,self._cl[0][0],self._cl[0][2],0,0,0,1])
 		else:
 			self.value={}
 			self.h._send([0x00,0x42,self.p,0x02])
-			for i in range(0,len(cl)):
-				self.h._send([0x00,0x41,self.p,cl[i][0],cl[i][2],0,0,0,1])
+			for i in range(0,len(self._cl)):
+				self.h._send([0x00,0x41,self.p,self._cl[i][0],self._cl[i][2],0,0,0,1])
 			b=[]
-			for i in range(0,len(cl)):
-				for j in range(cl[i][3]):
-					b+=[16*cl[i][0]+j]
+			for i in range(0,len(self._cl)):
+				for j in range(self._cl[i][3]):
+					b+=[16*self._cl[i][0]+j]
 			self.h._send([0x00,0x42,self.p,0x01,0]+b)
 			self.h._send([0x00,0x42,self.p,0x03])
 
@@ -576,7 +594,7 @@ class LargeMotor(HubDriver):
 
 	def __init__(self,h,p):
 		super().__init__(h,p,self.__class__._id)
-		self._setup_caps([(1,"speed",1,1,1),(2,"pos",1,1,4)])
+		self._setup_caps_wr([(1,"speed",1,1,1),(2,"pos",1,1,4)])
 		self._w_r=False
 
 
@@ -600,12 +618,12 @@ class LargeMotor(HubDriver):
 
 
 	def rotate(self,d,sp,m_pw=50,e_st=1):
-		self.h._send([0x00,0x81,self.p,0x11,0x0b]+list(struct.pack("i",d))+[self._to_bytes(sp),m_pw,(0 if e_st==0 else (126 if e_st==1 else 127)),3])
+		self.h._send([0x00,0x81,self.p,0x11,0x0b]+list(struct.pack("i",d))+[self._to_bytes(sp),m_pw,(0 if e_st==0 else (126 if e_st==1 else 127)),0],wait=False)
 
 
 
 	def set_speed(self,sp):
-		self.h._send([0x00,0x81,self.p,0x11,0x51,0,self._to_bytes(sp)])
+		self.h._send([0x00,0x81,self.p,0x11,0x51,0,self._to_bytes(sp)],wait=True)
 
 
 
@@ -623,7 +641,7 @@ class XLMotor(HubDriver):
 
 	def __init__(self,h,p):
 		super().__init__(h,p,self.__class__._id)
-		self._setup_caps([(1,"speed",1,1,1),(2,"pos",1,1,4)])
+		self._setup_caps_wr([(1,"speed",1,1,1),(2,"pos",1,1,4)])
 		self._w_r=False
 
 
@@ -647,12 +665,12 @@ class XLMotor(HubDriver):
 
 
 	def rotate(self,d,sp,m_pw=50,e_st=1):
-		self.h._send([0x00,0x81,self.p,0x11,0x0b]+list(struct.pack("i",d))+[self._to_bytes(sp),m_pw,(0 if e_st==0 else (126 if e_st==1 else 127)),3])
+		self.h._send([0x00,0x81,self.p,0x11,0x0b]+list(struct.pack("i",d))+[self._to_bytes(sp),m_pw,(0 if e_st==0 else (126 if e_st==1 else 127)),0],wait=False)
 
 
 
 	def set_speed(self,sp):
-		self.h._send([0x00,0x81,self.p,0x11,0x51,0,self._to_bytes(sp)])
+		self.h._send([0x00,0x81,self.p,0x11,0x51,0,self._to_bytes(sp)],wait=True)
 
 
 
@@ -670,7 +688,7 @@ class ExternalTachoMotor(HubDriver):
 
 	def __init__(self,h,p):
 		super().__init__(h,p,self.__class__._id)
-		self._setup_caps([(1,"speed",1,1,1),(2,"pos",1,1,4)])
+		self._setup_caps_wr([(1,"speed",1,1,1),(2,"pos",1,1,4)])
 		self._w_r=False
 
 
@@ -718,7 +736,7 @@ class VisionSensor(HubDriver):
 	def __init__(self,h,p):
 		super().__init__(h,p,self.__class__._id)
 		self._md=0
-		self._setup_caps([(0,"basic_color",1,1,1)])
+		self._setup_caps_wr([(0,"basic_color",1,1,1)])
 
 
 
@@ -736,7 +754,7 @@ class VisionSensor(HubDriver):
 			m=VISION_SENSOR_MODES.index(m)
 		if (m!=self._md):
 			self._md=m
-			self._setup_caps([(m,VISION_SENSOR_MODES[m],1,(3 if m==6 else 1),(4 if m==2 else (2 if m in [6,7] else 1)))])
+			self._setup_caps_wr([(m,VISION_SENSOR_MODES[m],1,(3 if m==6 else 1),(4 if m==2 else (2 if m in [6,7] else 1)))])
 
 
 
@@ -748,7 +766,7 @@ class RGBLed(HubDriver):
 	def __init__(self,h,p):
 		super().__init__(h,p,self.__class__._id)
 		self._md=0
-		self._setup_caps([(0,"preset_color",0,0,0)])
+		self._setup_caps_wr([(0,"preset_color",0,0,0)])
 
 
 
@@ -762,13 +780,13 @@ class RGBLed(HubDriver):
 			c=RGB_LED_COLORS.index(c.lower())
 		if (type(c)==int):
 			if (self._md==1):
-				self._setup_caps([(0,"preset_color",0,0,0)])
+				self._setup_caps_wr([(0,"preset_color",0,0,0)])
 				self.h._send([0x00,0x41,self.p,0x00,0,0,0,0,0])
 				self._md=0
 			self.h._send([0x00,0x81,self.p,0x11,0x51,0x00,c])
 		else:
 			if (self._md==0):
-				self._setup_caps([(1,"rgb_color",0,0,0)])
+				self._setup_caps_wr([(1,"rgb_color",0,0,0)])
 				self._md=1
 			self.h._send([0x00,0x81,self.p,0x11,0x51,0x01]+c)
 
@@ -781,7 +799,7 @@ class GyroSensor(HubDriver):
 
 	def __init__(self,h,p):
 		super().__init__(h,p,self.__class__._id)
-		self._setup_caps([(0,"gyro",1,3,2)])
+		self._setup_caps_wr([(0,"gyro",1,3,2)])
 		self._ld_tm=-1
 		self._l_dt=[None]*3
 		self._off=[0]*3
@@ -815,7 +833,7 @@ class TemperatureSensor(HubDriver):
 
 	def __init__(self,h,p):
 		super().__init__(h,p,self.__class__._id)
-		self._setup_caps([(0,"temperature",1,1,2)])
+		self._setup_caps_wr([(0,"temperature",1,1,2)])
 
 
 
@@ -832,7 +850,7 @@ class BatteryCurrent(HubDriver):
 
 	def __init__(self,h,p):
 		super().__init__(h,p,self.__class__._id)
-		self._setup_caps([(0,"current",1,1,2)])
+		self._setup_caps_wr([(0,"current",1,1,2)])
 
 
 
@@ -848,7 +866,7 @@ class BatteryVoltage(HubDriver):
 
 	def __init__(self,h,p):
 		super().__init__(h,p,self.__class__._id)
-		self._setup_caps([(0,"voltage",1,1,2)])
+		self._setup_caps_wr([(0,"voltage",1,1,2)])
 
 
 
@@ -864,7 +882,7 @@ class AccelerometerSensor(HubDriver):
 
 	def __init__(self,h,p):
 		super().__init__(h,p,self.__class__._id)
-		self._setup_caps([(0,"acceleration",1,3,2)])
+		self._setup_caps_wr([(0,"acceleration",1,3,2)])
 
 
 
@@ -884,7 +902,7 @@ class PositionSensor(HubDriver):
 
 	def __init__(self,h,p):
 		super().__init__(h,p,self.__class__._id)
-		self._setup_caps([(0,"position",1,3,2)])
+		self._setup_caps_wr([(0,"position",1,3,2)])
 
 
 
@@ -904,7 +922,7 @@ class GestureSensor(HubDriver):
 
 	def __init__(self,h,p):
 		super().__init__(h,p,self.__class__._id)
-		self._setup_caps([(0,"gesture",1,1,1)])
+		self._setup_caps_wr([(0,"gesture",1,1,1)])
 
 
 
