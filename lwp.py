@@ -18,6 +18,7 @@ PORT_MODE_INFO_MAPPING_BITS=["NA","NA","Discrete","Relative","Absolute","NA","Su
 PORT_MODE_INFO_DATASET_TYPES=["8b","16b","32b","float"]
 PORT_OUTPUT_FEEDBACK={0x01:"Buffer Empty + Command In Progress",0x02:"Buffer Empty + Command Completed",0x04:"Current Command(s) Discarded",0x08:"Idle",0x10:"Busy/Full"}
 RGB_LED_COLORS=["off","magenta","purple","blue","cyan","turquoise","green","yellow","orange","red","white"]
+MOTOR_END_STATE={"float":0,"hold":1,"brake":2}
 VISION_SENSOR_COLOR_DECODE={0:"black",3:"blue",5:"green",7:"yellow",9:"red",10:"white",255:"UNKNOWN"}
 VISION_SENSOR_MODES=["basic_color","proximity","count","reflect","ambience","color_o","rgb_color"]
 GYRO_SENSOR_VALUES=["roll","pitch","yaw"]
@@ -617,8 +618,8 @@ class LargeMotor(HubDriver):
 
 
 
-	def rotate(self,d,sp,m_pw=50,e_st=1):
-		self.h._send([0x00,0x81,self.p,0x11,0x0b]+list(struct.pack("i",d))+[self._to_bytes(sp),m_pw,(0 if e_st==0 else (126 if e_st==1 else 127)),0],wait=False)
+	def rotate(self,d,sp,m_pw=50,e_st=1,adp=0b00):
+		self.h._send([0x00,0x81,self.p,0x11,0x0b]+list(struct.pack("i",d))+[self._to_bytes(sp),m_pw,(0 if e_st==0 else (126 if e_st==1 else 127)),adp],wait=False)
 
 
 
