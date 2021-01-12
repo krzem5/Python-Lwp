@@ -1,3 +1,3 @@
 @echo off
 cls
-python37 lwp.py
+python37 src/lwp.py
