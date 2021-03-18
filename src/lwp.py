@@ -1,4 +1,3 @@
-# https://lego.github.io/lego-ble-wireless-protocol-docs/
 import bleak
 import asyncio
 import traceback
