@@ -103,7 +103,7 @@ class Hub:
 			for d in dl:
 				dt=list(d.metadata["manufacturer_data"].values())[0]
 				if (d.address not in al):
-					if (t==None):
+					if (t is None):
 						for m_id in Hub._hc.keys():
 							if (dt[1]==m_id):
 								print(d.address)
@@ -465,7 +465,6 @@ class HubDriver:
 					if (self._cl[0][1] not in self.value):
 						self.value[self._cl[0][1]]={}
 					self.value[self._cl[0][1]][i]=self._to_int(dt[i*self._cl[0][4]:(i+1)*self._cl[0][4]],self._cl[0][4])
-			dt=[]
 		else:
 			m,dt=dt[1],dt[2:]
 			i=0
@@ -745,7 +744,6 @@ class VisionSensor(HubDriver):
 			self.value["basic_color"]=VISION_SENSOR_COLOR_DECODE[self.value["basic_color"]]
 		if ("rgb_color" in self.value):
 			self.value["rgb_color"]={"red":self.value["rgb_color"][0],"green":self.value["rgb_color"][1],"blue":self.value["rgb_color"][2]}
-		pass
 
 
 
@@ -812,14 +810,13 @@ class GyroSensor(HubDriver):
 		tm=time.time()
 		if (self._ld_tm==-1):
 			self._ld_tm=tm+0
-		df=tm-self._ld_tm
 		self._ld_tm=tm+0
 		for i in range(3):
 			v=(self.value["gyro"][i]+2**15)%2**16-2**15
 			if (self._l_dt[i]!=None and abs(v-self._l_dt[i])>=25):
 				self._off[i]+=int((v-self._l_dt[i])/655.36*100)/100
 				self._l_dt[i]=v
-			if (self._l_dt[i]==None):
+			if (self._l_dt[i] is None):
 				self._l_dt[i]=v
 			self._g_dt[GYRO_SENSOR_VALUES[i]]+=self._off[i]+0
 		self.value={"gyro":self._g_dt}
@@ -839,7 +836,6 @@ class TemperatureSensor(HubDriver):
 
 	def _parse_value(self):
 		self.value["temperature"]=self.value["temperature"]/10
-		pass
 
 
 
@@ -891,7 +887,6 @@ class AccelerometerSensor(HubDriver):
 		for i in range(3):
 			dt[ACCELEROMETER_SENSOR_VALUES[i]]=(self.value["acceleration"][i]/655.36+50)%100-50
 		self.value={"acceleration":dt}
-		pass
 
 
 
@@ -911,7 +906,6 @@ class PositionSensor(HubDriver):
 		for i in range(3):
 			dt[i]=(self.value["position"][i]/255+128)%255-128
 		self.value={"position":dt}
-		pass
 
 
 
